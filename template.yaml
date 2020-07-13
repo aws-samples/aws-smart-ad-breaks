@@ -1,0 +1,446 @@
+# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  WorkflowCustomResourceArn:
+    Type: String
+    Description: "ARN of the MIE custom resource (WorkflowCustomResourceArn output of the main MIE CloudFormation stack)"
+    # TODO: Remove Default
+    Default: "arn:aws:lambda:us-west-2:462001655484:function:mie-oregon-MediaInsightsWor-WorkflowCustomResource-1VW9HQPMJJ3MS"
+  MediaInsightsEnginePython37Layer:
+    Type: String
+    Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython37Layer output of the main MIE CloudFormation stack)"
+    # TODO: Remove Default
+    Default: "arn:aws:lambda:us-west-2:462001655484:layer:media-insights-engine-python37:1"
+  DataplaneEndpoint:
+    Type: "String"
+    Description: "Dataplane endpoint (APIHandlerName output of the MIE Dataplane CloudFormation nested stack)"
+    # TODO: Remove Default
+    Default: "mie-oregon-MediaInsightsDataplaneApiSta-APIHandler-1I43TSHZE1GGV"
+  DataplaneBucket:
+    Type: "String"
+    Description: "Bucket for the dataplane (DataplaneBucket output of the main MIE CloudFormation stack)"
+    # TODO: Remove Default
+    Default: "mie-oregon-dataplane-l7x9f9e43ek0"
+  AdServerCloudFrontURL:
+    Type: "String"
+    Description: "URL for the CloudFront distribution that serves ad contents"
+    Default: "https://d2ek3blg0arzgs.cloudfront.net/"
+
+Globals:
+  Function:
+    Runtime: python3.7
+    Handler: app.lambda_handler
+    Timeout: 300
+    MemorySize: 1024
+    Layers:
+      - !Ref MediaInsightsEnginePython37Layer
+    Environment:
+      Variables:
+        DATAPLANE_BUCKET: !Ref DataplaneBucket
+        DataplaneEndpoint: !Ref DataplaneEndpoint
+
+Resources:
+  #############
+  # IAM Roles #
+  #############
+  MediaConvertS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - mediaconvert.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: MediaConvertS3RolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${DataplaneBucket}/*"
+  LambdaMediaConvertRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: LambdaMediaConvertRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - mediaconvert:GetJob
+                  - mediaconvert:ListJobs
+                  - mediaconvert:DescribeEndpoints
+                  - mediaconvert:CreateJob
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt MediaConvertS3Role.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${DataplaneBucket}/*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DataplaneEndpoint}*"
+  LambdaDataplaneRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: LambdaDataplaneRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${DataplaneBucket}/*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DataplaneEndpoint}*"
+  StateMachineExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: StateMachineExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - "arn:aws:lambda:*:*:function:*"
+
+  ########################################
+  # Lambda functions of custom operators #
+  ########################################
+  VideoTranscodingStartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: video_transcoding_start/
+      Role: !GetAtt LambdaMediaConvertRole.Arn
+      Environment:
+        Variables:
+          MEDIA_CONVERT_ROLE_ARN: !GetAtt MediaConvertS3Role.Arn
+          FRAMES_PER_SECOND: 15
+  VideoTranscodingCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: video_transcoding_check/
+      Role: !GetAtt LambdaMediaConvertRole.Arn
+  SlotDetectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: slot_detection/
+      Role: !GetAtt LambdaDataplaneRole.Arn
+      # TODO: Fix Layers
+      Layers:
+        - arn:aws:lambda:us-east-1:770693421928:layer:Klayers-python38-opencv-python-headless:10
+      Environment:
+        Variables:
+          # Fade
+          IMAGE_RATIO_THRESHOLD: 0.90
+          LUMINANCE_THRESHOLD: 0.20
+          FRAME_CHANGE_THRESHOLD: 0.15
+          FRAMES_PER_SECOND: 15
+          # Silence
+          START_THRESHOLD_IN_SECONDS: 3
+          SILENT_THRESHOLD: -50
+          # Context
+          CONTEXT_MIN_CONFIDENCE: 70
+          CONTEXT_INTERVAL_IN_SECONDS: 2
+  VmapGenerationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: vmap_generation/
+      Role: !GetAtt LambdaDataplaneRole.Arn
+      Environment:
+        Variables:
+          ADS_CF_URL: !Ref AdServerCloudFrontURL
+          TOP_SLOTS_QTY: 3
+
+  #############
+  # Operators #
+  #############
+  VideoTranscodingOperator:
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Operation"
+      Name: "videoTranscoding"
+      Type: "Async"
+      Configuration:
+          {
+            "MediaType": "Video",
+            "Enabled": true
+          }
+      StartLambdaArn: !GetAtt VideoTranscodingStartFunction.Arn
+      MonitorLambdaArn: !GetAtt VideoTranscodingCheckFunction.Arn
+      StateMachineExecutionRoleArn: !GetAtt StateMachineExecutionRole.Arn
+  SlotDetectionOperator:
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Operation"
+      Name: "slotDetection"
+      Type: "Sync"
+      Configuration:
+          {
+            "MediaType": "Video",
+            "Enabled": true
+          }
+      StartLambdaArn: !GetAtt SlotDetectionFunction.Arn
+      StateMachineExecutionRoleArn: !GetAtt StateMachineExecutionRole.Arn
+  VmapGenerationOperator:
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Operation"
+      Name: "vmapGeneration"
+      Type: "Sync"
+      Configuration:
+          {
+            "MediaType": "Video",
+            "Enabled": true
+          }
+      StartLambdaArn: !GetAtt VmapGenerationFunction.Arn
+      StateMachineExecutionRoleArn: !GetAtt StateMachineExecutionRole.Arn
+
+  ##########
+  # Stages #
+  ##########
+  SmartAdBreaksStage1:
+    DependsOn:
+      - VideoTranscodingOperator
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Stage"
+      Name: "SmartAdBreaksStage1"
+      Operations:
+        - !GetAtt VideoTranscodingOperator.Name
+  SmartAdBreaksStage2:
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Stage"
+      Name: "SmartAdBreaksStage2"
+      Operations:
+        - labelDetection
+        - celebrityRecognition
+        - faceDetection
+        - contentModeration
+        - shotDetection
+        - technicalCueDetection
+  SmartAdBreaksStage3:
+    DependsOn:
+      - SlotDetectionOperator
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Stage"
+      Name: "SmartAdBreaksStage3"
+      Operations:
+        - !GetAtt SlotDetectionOperator.Name
+  SmartAdBreaksStage4:
+    DependsOn:
+      - VmapGenerationOperator
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Stage"
+      Name: "SmartAdBreaksStage4"
+      Operations:
+        - !GetAtt VmapGenerationOperator.Name
+
+  ############
+  # Workflow #
+  ############
+  SmartAdBreaksWorkflow:
+    DependsOn:
+      - SmartAdBreaksStage1
+      - SmartAdBreaksStage2
+      - SmartAdBreaksStage3
+      - SmartAdBreaksStage4
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !Ref WorkflowCustomResourceArn
+      ResourceType: "Workflow"
+      Name: "SmartAdBreaksWorkflow"
+      Stages: !Sub
+        - |-
+          {
+            "${stagename1}":
+            {
+                "Next": "${stagename2}"
+            },
+            "${stagename2}":
+            {
+                "Next": "${stagename3}"
+            },
+            "${stagename3}":
+            {
+                "Next": "${stagename4}"
+            },
+            "${stagename4}":
+            {
+                "End": true
+            }
+          }
+        - stagename1: !GetAtt SmartAdBreaksStage1.Name
+          stagename2: !GetAtt SmartAdBreaksStage2.Name
+          stagename3: !GetAtt SmartAdBreaksStage3.Name
+          stagename4: !GetAtt SmartAdBreaksStage4.Name
+      StartAt: !GetAtt SmartAdBreaksStage1.Name
+
+  ###############
+  # MediaTailor #
+  ###############
+  MediaTailorConfig:
+    Type: Custom::MediaTailorConfig
+    Properties:
+      ServiceToken: !GetAtt MediaTailorConfigFunction.Arn
+      ConfigurationName: !Join ['', [!Ref AWS::StackName, '-config']]
+      VideoContentSource: !Join ['', ['https://' , !GetAtt CloudFrontDistribution.DomainName]]
+      AdDecisionServer: !Join ['', ['https://' , !Join ['', [!GetAtt CloudFrontDistribution.DomainName, '/[player_params.asset_id]/vmap/ad_breaks.vmap']]]]
+  MediaTailorConfigFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+      Policies:
+        - PolicyName: MediaTailorFullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - mediatailor:*
+                Resource: "*"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+  MediaTailorConfigFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: mediatailor/
+      Role: !GetAtt MediaTailorConfigFunctionRole.Arn
+
+  ##############
+  # CloudFront #
+  ##############
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Join ['', ['access-identity-', !Join ['', [!Ref DataplaneBucket, '.s3.amazonaws.com']]]]
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: ''
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: MIEDataplane
+            DomainName: !Join ['', [!Ref DataplaneBucket, '.s3.amazonaws.com']]
+            OriginPath: '/private/assets'
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ['', ['origin-access-identity/cloudfront/', !Ref CloudFrontOAI]]
+        DefaultCacheBehavior:
+          TargetOriginId: MIEDataplane
+          ViewerProtocolPolicy: allow-all
+          ForwardedValues:
+            Cookies:
+              Forward: none
+            QueryString: true
+  CloudFrontBucketPermission:
+    Type: Custom::CloudFrontBucketPermission
+    Properties:
+      ServiceToken: !GetAtt CloudFrontBucketPermissionFunction.Arn
+      BucketName: !Ref DataplaneBucket
+      OriginAccessIdentity: !Ref CloudFrontOAI
+  CloudFrontBucketPermissionFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+  CloudFrontBucketPermissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cloudfront/
+      Role: !GetAtt CloudFrontBucketPermissionFunctionRole.Arn
+
+Outputs:
+  MediaTailorHLSPlaybackPrefix:
+    Value: !GetAtt MediaTailorConfig.HLSPlaybackPrefix
