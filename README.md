@@ -1,17 +1,15 @@
-## My Project
+# Smart Ad Breaks
 
-TODO: Fill this README out!
+## Setup
 
-Be sure to:
+```
+sam deploy --guided
+```
 
-* Change the title in this README
-* Edit your repository description on GitHub
+### Required parameters
 
-## Security
-
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
-
-## License
-
-This library is licensed under the MIT-0 License. See the LICENSE file.
-
+- **WorkflowCustomResourceArn:** ARN of the MIE custom resource (WorkflowCustomResourceArn output of the MIE main CloudFormation stack)
+- **MediaInsightsEnginePython37Layer:** ARN of the MIE Lambda layer (MediaInsightsEnginePython37Layer output of the MIE main CloudFormation stack)
+- **DataplaneEndpoint:** Dataplane endpoint (APIHandlerName output of the MIE Dataplane CloudFormation nested stack)
+- **DataplaneBucket:** Bucket for the dataplane (DataplaneBucket output of the MIE main CloudFormation stack)
+- **AdServerCloudFrontURL:** URL for the CloudFront distribution that serves ad contents (published blog content)

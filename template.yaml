@@ -27,7 +27,7 @@ Parameters:
     Default: "mie-oregon-dataplane-l7x9f9e43ek0"
   AdServerCloudFrontURL:
     Type: "String"
-    Description: "URL for the CloudFront distribution that serves ad contents"
+    Description: "URL for the CloudFront distribution that serves ad contents (published blog content)"
     Default: "https://d2ek3blg0arzgs.cloudfront.net/"
 
 Globals:
