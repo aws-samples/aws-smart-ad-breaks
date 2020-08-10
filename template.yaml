@@ -444,3 +444,5 @@ Resources:
 Outputs:
   MediaTailorHLSPlaybackPrefix:
     Value: !GetAtt MediaTailorConfig.HLSPlaybackPrefix
+  CloudFrontDataplaneDistributionURL:
+    Value: !GetAtt CloudFrontDistribution.DomainName
