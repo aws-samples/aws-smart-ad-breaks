@@ -1,0 +1,36 @@
+{
+    "ads": [
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-caribbean-15.mp4",
+            "labels": ["Coast", "Beach", "Shoreline", "Sea", "Ocean", "Tropical", "Outdoors", "Boat", "Sailboat", "Palm Tree", "Tree", "Summer"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-music-15.mp4",
+            "labels": ["Musician", "Musical Instrument", "Music Band", "Guitar", "Electric Guitar", "Microphone", "Bass Guitar", "Drum", "Concert", "Stage"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-carracing-15.mp4",
+            "labels": ["Car", "Vehicle", "Tarmac", "Formula One", "Asphalt", "Kart", "Automobile"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-perfume-15.mp4",
+            "labels": ["Perfume", "Fashion", "Cosmetics", "Hair"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-polarbear-15.mp4",
+            "labels": ["Polar Bear", "Bear", "Ice", "Iceberg", "Snow", "Wildlife", "Animal"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-robots-15.mp4",
+            "labels": ["Robot", "Joystick", "Computer", "Electronics", "Hardware", "Video Gaming"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-skiing-15.mp4",
+            "labels": ["Skiing", "Snow", "Sport", "Sports", "Mountain", "Winter", "Travel", "Outdoors", "Nature"]
+        },
+        {
+            "url": "https://d2qohgpffhaffh.cloudfront.net/Ads/AD-sports-15.mp4",
+            "labels": ["Sport", "Sports", "Basketball", "Football", "Baseball", "Hockey", "Soccer", "Tennis", "Golf"]
+        }
+    ]
+}

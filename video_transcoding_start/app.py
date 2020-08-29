@@ -4,17 +4,13 @@
 ###############################################################################
 # PURPOSE:
 #   This operator uses MediaConvert to do four things:
-#     1) transcode video into an HLS stream to be used with MediaTailor
+#     1) transcode video into an HLS playlist to be used with MediaTailor
 #     2) transcode video into an MP4 format supported by Rekognition
-#     3) extract frames from video
-#     4) extract audio track from video (with loudness analysis)
+#     3) extract audio track from video (with loudness analysis)
 #   The transcode MP4 video is a "proxy encode" and is used by Rekognition
 #   operators instead of the original video uploaded by a user.
 #
 # OUTPUT:
-#   Frames and transcoded videos will be saved to the following path:
-#       "s3://" + $DATAPLANE_BUCKET + "/private/assets/"" + asset_id + "/"
-#   Frame filenames will end with "_frame.0000001.jpg".
 #   Audio will be saved to the following path:
 #       "s3://" + $DATAPLANE_BUCKET + "/private/assets/"" + asset_id + "/workflows/" + workflow_id + "/"
 #
@@ -28,9 +24,6 @@ from MediaInsightsEngineLambdaHelper import MasExecutionError
 
 region = os.environ['AWS_REGION']
 mediaconvert_role = os.environ['MEDIA_CONVERT_ROLE_ARN']
-frames_per_second = int(os.environ.get('FRAMES_PER_SECOND', 15))
-frame_width = int(os.environ.get('FRAME_WIDTH', 320))
-frame_height = int(os.environ.get('FRAME_HEIGHT', 240))
 
 mediaconvert = boto3.client("mediaconvert", region_name=region)
 
@@ -51,7 +44,6 @@ def lambda_handler(event, context):
     file_input = "s3://" + bucket + "/" + key
     hls_destination = "s3://" + bucket + "/private/assets/" + asset_id + "/hls/playlist"
     proxy_destination = "s3://" + bucket + "/private/assets/" + asset_id + "/proxy/" + asset_id
-    frames_destination = "s3://" + bucket + "/private/assets/" + asset_id + "/frames/" + asset_id
     audio_destination = "s3://" + bucket + "/private/assets/" + asset_id + "/audio/" + asset_id
 
     # Get mediaconvert endpoint from cache if available
@@ -199,44 +191,6 @@ def lambda_handler(event, context):
                             "Type": "FILE_GROUP_SETTINGS",
                             "FileGroupSettings": {
                                 "Destination": proxy_destination
-                            }
-                        }
-                    },
-                    {
-                        "CustomName": "Frames",
-                        "Name": "File Group",
-                        "Outputs": [
-                            {
-                                "ContainerSettings": {
-                                    "Container": "RAW"
-                                },
-                                "VideoDescription": {
-                                    "ScalingBehavior": "STRETCH_TO_OUTPUT",
-                                    "TimecodeInsertion": "DISABLED",
-                                    "AntiAlias": "ENABLED",
-                                    "Sharpness": 50,
-                                    "CodecSettings": {
-                                        "Codec": "FRAME_CAPTURE",
-                                        "FrameCaptureSettings": {
-                                            "FramerateNumerator": frames_per_second,
-                                            "FramerateDenominator": 1,
-                                            "MaxCaptures": 1000000,
-                                            "Quality": 80
-                                        }
-                                    },
-                                    "DropFrameTimecode": "ENABLED",
-                                    "ColorMetadata": "INSERT",
-                                    "Width": frame_width,
-                                    "Height": frame_height
-                                },
-                                "Extension": "jpg",
-                                "NameModifier": "_frame"
-                            }
-                        ],
-                        "OutputGroupSettings": {
-                            "Type": "FILE_GROUP_SETTINGS",
-                            "FileGroupSettings": {
-                                "Destination": frames_destination
                             }
                         }
                     },

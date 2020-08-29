@@ -5,30 +5,21 @@ AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
 Parameters:
-  WorkflowCustomResourceArn:
-    Type: String
-    Description: "ARN of the MIE custom resource (WorkflowCustomResourceArn output of the main MIE CloudFormation stack)"
-    # TODO: Remove Default
-    Default: "arn:aws:lambda:us-west-2:462001655484:function:mie-oregon-MediaInsightsWor-WorkflowCustomResource-1VW9HQPMJJ3MS"
   MediaInsightsEnginePython37Layer:
     Type: String
     Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython37Layer output of the main MIE CloudFormation stack)"
-    # TODO: Remove Default
-    Default: "arn:aws:lambda:us-west-2:462001655484:layer:media-insights-engine-python37:1"
+  WorkflowCustomResourceArn:
+    Type: String
+    Description: "ARN of the MIE custom resource (WorkflowCustomResourceArn output of the main MIE CloudFormation stack)"
+  WorkflowEndpoint:
+    Type: "String"
+    Description: "Workflow endpoint (APIHandlerName output of the MIE Workflow CloudFormation nested stack)"
   DataplaneEndpoint:
     Type: "String"
     Description: "Dataplane endpoint (APIHandlerName output of the MIE Dataplane CloudFormation nested stack)"
-    # TODO: Remove Default
-    Default: "mie-oregon-MediaInsightsDataplaneApiSta-APIHandler-1I43TSHZE1GGV"
   DataplaneBucket:
     Type: "String"
     Description: "Bucket for the dataplane (DataplaneBucket output of the main MIE CloudFormation stack)"
-    # TODO: Remove Default
-    Default: "mie-oregon-dataplane-l7x9f9e43ek0"
-  AdServerCloudFrontURL:
-    Type: "String"
-    Description: "URL for the CloudFront distribution that serves ad contents (published blog content)"
-    Default: "https://d2ek3blg0arzgs.cloudfront.net/"
 
 Globals:
   Function:
@@ -142,6 +133,36 @@ Resources:
                   - lambda:InvokeFunction
                 Resource:
                   - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${DataplaneEndpoint}*"
+  LambdaWorkflowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: LambdaWorkflowRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${DataplaneBucket}/*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${WorkflowEndpoint}*"
   StateMachineExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -164,6 +185,47 @@ Resources:
                 Resource:
                   - "arn:aws:lambda:*:*:function:*"
 
+  ###################################
+  # Input bucket and Lambda funcion #
+  ###################################
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'AES256'
+  InputBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref InputBucket
+      PolicyDocument: 
+        Statement: 
+          - Effect: Deny
+            Action: 
+              - s3:*
+            Resource: 
+              - !Sub "arn:aws:s3:::${InputBucket}/*"
+            Principal: "*"
+            Condition: 
+              Bool: 
+                aws:SecureTransport: false
+  InputFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: input/
+      Role: !GetAtt LambdaWorkflowRole.Arn
+      Environment:
+        Variables:
+          WORKFLOW_NAME: "SmartAdBreaksWorkflow"
+          WorkflowEndpoint: !Ref WorkflowEndpoint
+      Events:
+        S3Bucket:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+
   ########################################
   # Lambda functions of custom operators #
   ########################################
@@ -175,7 +237,6 @@ Resources:
       Environment:
         Variables:
           MEDIA_CONVERT_ROLE_ARN: !GetAtt MediaConvertS3Role.Arn
-          FRAMES_PER_SECOND: 15
   VideoTranscodingCheckFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -186,16 +247,8 @@ Resources:
     Properties:
       CodeUri: slot_detection/
       Role: !GetAtt LambdaDataplaneRole.Arn
-      # TODO: Fix Layers
-      Layers:
-        - arn:aws:lambda:us-east-1:770693421928:layer:Klayers-python38-opencv-python-headless:10
       Environment:
         Variables:
-          # Fade
-          IMAGE_RATIO_THRESHOLD: 0.90
-          LUMINANCE_THRESHOLD: 0.20
-          FRAME_CHANGE_THRESHOLD: 0.15
-          FRAMES_PER_SECOND: 15
           # Silence
           START_THRESHOLD_IN_SECONDS: 3
           SILENT_THRESHOLD: -50
@@ -209,7 +262,6 @@ Resources:
       Role: !GetAtt LambdaDataplaneRole.Arn
       Environment:
         Variables:
-          ADS_CF_URL: !Ref AdServerCloudFrontURL
           TOP_SLOTS_QTY: 3
 
   #############
@@ -353,9 +405,18 @@ Resources:
     Type: Custom::MediaTailorConfig
     Properties:
       ServiceToken: !GetAtt MediaTailorConfigFunction.Arn
-      ConfigurationName: !Join ['', [!Ref AWS::StackName, '-config']]
-      VideoContentSource: !Join ['', ['https://' , !GetAtt CloudFrontDistribution.DomainName]]
-      AdDecisionServer: !Join ['', ['https://' , !Join ['', [!GetAtt CloudFrontDistribution.DomainName, '/[player_params.asset_id]/vmap/ad_breaks.vmap']]]]
+      ConfigurationName: !Sub "${AWS::StackName}-config"
+      VideoContentSource: !Sub "https://${DataplaneBucket}.s3.amazonaws.com/private"
+      AdDecisionServer: !Sub "https://${DataplaneBucket}.s3.amazonaws.com/private/assets/[player_params.asset_id]/vmap/ad_breaks.vmap"
+  MediaTailorConfigUpdateWithCDN:
+    Type: Custom::MediaTailorConfig
+    Properties:
+      ServiceToken: !GetAtt MediaTailorConfigFunction.Arn
+      ConfigurationName: !Sub "${AWS::StackName}-config"
+      VideoContentSource: !Sub "https://${CloudFrontDistribution.DomainName}"
+      AdDecisionServer: !Sub "https://${CloudFrontDistribution.DomainName}/assets/[player_params.asset_id]/vmap/ad_breaks.vmap"
+      CDNContentSegmentPrefix: !Sub "https://${CloudFrontDistribution.DomainName}"
+      CDNAdSegmentPrefix: !Sub "https://${CloudFrontDistribution.DomainName}"
   MediaTailorConfigFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -363,13 +424,14 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
         - arn:aws:iam::aws:policy/AWSLambdaFullAccess
       Policies:
-        - PolicyName: MediaTailorFullAccess
+        - PolicyName: MediaTailorAccess
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - mediatailor:*
+                  - mediatailor:PutPlaybackConfiguration
+                  - mediatailor:DeletePlaybackConfiguration
                 Resource: "*"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -392,7 +454,7 @@ Resources:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
       CloudFrontOriginAccessIdentityConfig:
-        Comment: !Join ['', ['access-identity-', !Join ['', [!Ref DataplaneBucket, '.s3.amazonaws.com']]]]
+        Comment: !Sub "access-identity-${DataplaneBucket}.s3.amazonaws.com"
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -402,18 +464,49 @@ Resources:
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
         Origins:
-          - Id: MIEDataplane
-            DomainName: !Join ['', [!Ref DataplaneBucket, '.s3.amazonaws.com']]
-            OriginPath: '/private/assets'
+          - Id: DataplaneBucket
+            DomainName: !Sub "${DataplaneBucket}.s3.amazonaws.com"
+            OriginPath: '/private'
             S3OriginConfig:
-              OriginAccessIdentity: !Join ['', ['origin-access-identity/cloudfront/', !Ref CloudFrontOAI]]
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+          - Id: MediaTailorConfig
+            DomainName: !GetAtt MediaTailorConfig.HLSPlaybackDomain
+            OriginPath: ''
+            CustomOriginConfig:
+              OriginSSLProtocols: 
+                - TLSv1.2
+              OriginProtocolPolicy: https-only
+          - Id: MediaTailorAdSegments
+            DomainName: !Sub "segments.mediatailor.${AWS::Region}.amazonaws.com"
+            OriginPath: ''
+            CustomOriginConfig:
+              OriginSSLProtocols: 
+                - TLSv1.2
+              OriginProtocolPolicy: https-only
         DefaultCacheBehavior:
-          TargetOriginId: MIEDataplane
+          TargetOriginId: MediaTailorAdSegments
           ViewerProtocolPolicy: allow-all
           ForwardedValues:
             Cookies:
               Forward: none
             QueryString: true
+        CacheBehaviors:
+          - TargetOriginId: MediaTailorConfig
+            ViewerProtocolPolicy: allow-all
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: 775133bc-15f2-49f9-abea-afb2e0bf67d2 # Managed-Elemental-MediaTailor-PersonalizedManifests
+            ForwardedValues:
+              Cookies:
+                Forward: none
+              QueryString: true
+            PathPattern: "/v1/*"
+          - TargetOriginId: DataplaneBucket
+            ViewerProtocolPolicy: allow-all
+            ForwardedValues:
+              Cookies:
+                Forward: none
+              QueryString: true
+            PathPattern: "/assets/*"
   CloudFrontBucketPermission:
     Type: Custom::CloudFrontBucketPermission
     Properties:
@@ -442,5 +535,9 @@ Resources:
       Role: !GetAtt CloudFrontBucketPermissionFunctionRole.Arn
 
 Outputs:
-  MediaTailorHLSPlaybackPrefix:
-    Value: !GetAtt MediaTailorConfig.HLSPlaybackPrefix
+  InputBucket:
+    Value: !Ref InputBucket
+  CloudFrontDomainName:
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+  CloudFrontHLSPlaybackPrefix:
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}${MediaTailorConfigUpdateWithCDN.HLSPlaybackPath}"

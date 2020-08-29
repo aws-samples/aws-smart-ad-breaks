@@ -3,7 +3,7 @@
 
 ###############################################################################
 # PURPOSE:
-#   Adds HLS, proxy encode, frames and audio outputs from MediaConvert to
+#   Adds HLS, proxy encode and audio outputs from MediaConvert to
 #   workflow metadata so downstream operators can use them as inputs.
 ###############################################################################
 
@@ -86,18 +86,10 @@ def lambda_handler(event, context):
             proxy_path = "/".join(proxy_output_uri.split("/")[3:])
             proxy_key = proxy_path + proxy_modifier + "." + proxy_extension
             operator_object.add_media_object("ProxyEncode", proxy_bucket, proxy_key)
-            # Get frames object
-            frames_output_uri = response["Job"]["Settings"]["OutputGroups"][2]["OutputGroupSettings"]["FileGroupSettings"]["Destination"]
-            frames_extension = response["Job"]["Settings"]["OutputGroups"][2]["Outputs"][0]["Extension"]
-            frames_modifier = response["Job"]["Settings"]["OutputGroups"][2]["Outputs"][0]["NameModifier"]
-            frames_bucket = frames_output_uri.split("/")[2]
-            frames_path = "/".join(frames_output_uri.split("/")[3:])
-            frames_key = frames_path + frames_modifier + "." + frames_extension
-            operator_object.add_media_object("Frames", frames_bucket, frames_key)
             # Get audio object
-            audio_output_uri = response["Job"]["Settings"]["OutputGroups"][3]["OutputGroupSettings"]["FileGroupSettings"]["Destination"]
-            audio_extension = response["Job"]["Settings"]["OutputGroups"][3]["Outputs"][0]["Extension"]
-            audio_modifier = response["Job"]["Settings"]["OutputGroups"][3]["Outputs"][0]["NameModifier"]
+            audio_output_uri = response["Job"]["Settings"]["OutputGroups"][2]["OutputGroupSettings"]["FileGroupSettings"]["Destination"]
+            audio_extension = response["Job"]["Settings"]["OutputGroups"][2]["Outputs"][0]["Extension"]
+            audio_modifier = response["Job"]["Settings"]["OutputGroups"][2]["Outputs"][0]["NameModifier"]
             audio_bucket = audio_output_uri.split("/")[2]
             audio_path = "/".join(audio_output_uri.split("/")[3:])
             audio_key = audio_path + audio_modifier + "." + audio_extension

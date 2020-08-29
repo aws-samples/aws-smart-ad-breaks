@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from events import TrackingEvent
+from vmap_xml.events import TrackingEvent
 
 REQURED_ATTRIBUTES = ("timeOffset", "breakType")
 BREAK_TYPES = ("linear", "nonlinear", "display")

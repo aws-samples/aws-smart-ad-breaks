@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import json
 import datetime
 import random
 import boto3
@@ -10,22 +11,19 @@ from MediaInsightsEngineLambdaHelper import MediaInsightsOperationHelper
 from MediaInsightsEngineLambdaHelper import MasExecutionError
 from MediaInsightsEngineLambdaHelper import DataPlane
 
-from vmap import VMAP
+from vmap_xml.vmap import VMAP
+from vast_xml.vast import VAST
 
-AD_FILES = [
-    'AD-caribbean-5.mp4',
-    'AD-carracing-5.mp4',
-    'AD-perfume-5.mp4',
-    'AD-polarbear-5.mp4',
-    'AD-robots-5.mp4',
-    'AD-skiing-5.mp4',
-    'AD-sports-5.mp4']
+ADS_FILE = 'ads.json'
 
-ads_cf_url = os.environ['ADS_CF_URL']
 top_slots_qty = int(os.environ['TOP_SLOTS_QTY'])
 
 s3 = boto3.client('s3')
 dataplane = DataPlane()
+
+# Reading ads from JSON file
+with open(ADS_FILE) as json_file:
+    ads = json.load(json_file)['ads']
 
 def lambda_handler(event, context):
     print("We got the following event:\n", event)
@@ -57,10 +55,11 @@ def lambda_handler(event, context):
             VmapGenerationError="Unable to retrieve metadata for asset {}: {}".format(asset_id, exception))
         raise MasExecutionError(operator_object.return_output_object())
     try:
+        # Select slots with highest scores
+        slots["slots"].sort(key=lambda slot: slot["Score"])
+        top_slots = slots["slots"][-top_slots_qty:]
         # Generate VMAP and add object
         key = 'private/assets/{}/vmap/ad_breaks.vmap'.format(asset_id)
-        slots["slots"].sort(key=__get_slot_score)
-        top_slots = slots["slots"][-top_slots_qty:]
         __write_vmap(top_slots, bucket, key)
         operator_object.add_media_object("VMAP", bucket, key)
         # Set workflow status complete
@@ -84,29 +83,56 @@ def __update_and_merge_lists(dict1, dict2):
         else:
             dict1[key] = dict2[key]
 
-def __get_slot_score(slot):
-    return slot["Score"]
-
 def __write_vmap(slots, bucket, key):
     vmap = VMAP()
     i = 1
     for slot in slots:
+        # Merging labels from before and after the slot into a single list
+        before_labels = [label['Name'] for label in slot['Context']['Labels']['Before']]
+        after_labels = [label['Name'] for label in slot['Context']['Labels']['After']]
+        labels = before_labels + list(set(after_labels) - set(before_labels))
+        # Adding ad break to VMAP file
         ad_break = vmap.attachAdBreak({
             'timeOffset': __format_timedelta(datetime.timedelta(seconds=float(slot['Timestamp']))),
             'breakType': 'linear',
             'breakId': 'midroll-{}'.format(i)
         })
-        ad_break.attachAdSource('midroll-{}-ad-1'.format(i), 'false', 'true', 'VASTAdData',
-            '<VAST version="3.0"><Ad><InLine><AdSystem>2.0</AdSystem><AdTitle>midroll-{}-ad-1</AdTitle><Impression/><Creatives><Creative><Linear><Duration>00:00:05</Duration><MediaFiles><MediaFile delivery="progressive" type="video/mp4" width="1920" height="1080"><![CDATA[{}ads/{}]]></MediaFile></MediaFiles></Linear></Creative></Creatives></InLine></Ad></VAST>'.format(
-                i,
-                ads_cf_url,
-                random.choice(AD_FILES)))
+        # Adding VAST ad source 
+        vast = VAST()
+        ad_break.attachAdSource(
+            'midroll-{}-ad-1'.format(i),
+            'false',
+            'true',
+            'VASTAdData',
+            vast)
+        ad = vast.attachAd({
+            'id': str(i),
+            'structure': 'inline',
+            'AdSystem': {'name': '2.0'},
+            'AdTitle': 'midroll-{}-ad-1'.format(i)
+        })
+        ad.attachImpression({})
+        creative = ad.attachCreative('Linear', {
+            'Duration' : '00:00:15'
+        })
+        # Setting media file URL referencing the ad server, passing labels as parameters
+        creative.attachMediaFile(__select_ad(labels), {
+            'id': 'midroll-{}-ad-1'.format(i),
+            'type': 'video/mp4',
+            'delivery': 'progressive',
+            'width': '1920',
+            'height': '1080'
+        })
         i += 1
-
-    vmap_content = '<?xml version="1.0" encoding="UTF-8"?>{}'.format(vmap.xml().decode('utf-8'))
+    # Converting VMAP content to XML
+    vmap_content = vmap.xml()
     print(vmap_content)
-
-    __write_to_s3(vmap_content, bucket, key)
+    # Putting VMAP file into dataplane bucket
+    s3.put_object(
+        Body=bytes(vmap_content),
+        Bucket=bucket,
+        Key=key
+    )
 
 def __format_timedelta(delta):
     hours, rem = divmod(delta.seconds, 3600)
@@ -114,9 +140,21 @@ def __format_timedelta(delta):
     milliseconds = int(delta.microseconds / 1000)
     return '{:02d}:{:02d}:{:02d}.{:03d}'.format(hours, minutes, seconds, milliseconds)
 
-def __write_to_s3(content, bucket, key):
-    s3.put_object(
-        Body=bytes(content.encode('UTF-8')),
-        Bucket=bucket,
-        Key=key
-    )
+def __select_ad(labels):
+    print('labels: {}'.format(labels))
+    # Searching ads to find the one with most similar labels
+    top_similarity = -1.0
+    top_ad = None
+    slot_labels = set(labels)
+    random.shuffle(ads) # Shuffle to return a random ad in case none has similarity
+    for ad in ads:
+        print('ad: {}'.format(ad))
+        ad_labels = set(ad['labels'])
+        similarity = len(slot_labels.intersection(ad_labels)) / len(slot_labels.union(ad_labels))
+        if similarity > top_similarity:
+            top_similarity = similarity
+            top_ad = ad
+    print('top_ad: {}'.format(top_ad))
+    print('top_similarity: {}'.format(top_similarity))
+    # Return URL to selected ad video file
+    return top_ad['url']

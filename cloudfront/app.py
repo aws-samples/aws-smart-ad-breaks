@@ -36,8 +36,9 @@ def lambda_handler(event, context):
         try:
             policy = json.loads(s3.get_bucket_policy(Bucket=bucket)['Policy'])
             for statement in reversed(policy['Statement']):
-                if statement['Sid'] == oai:
-                    policy['Statement'].remove(statement)
+                if 'Sid' in statement:
+                    if statement['Sid'] == oai:
+                        policy['Statement'].remove(statement)
             s3.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
             response = {}
         except ClientError as error:
