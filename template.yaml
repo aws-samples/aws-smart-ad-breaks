@@ -5,9 +5,9 @@ AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
 Parameters:
-  MediaInsightsEnginePython37Layer:
+  MediaInsightsEnginePython38Layer:
     Type: String
-    Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython37Layer output of the main MIE CloudFormation stack)"
+    Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython38Layer output of the main MIE CloudFormation stack)"
   WorkflowCustomResourceArn:
     Type: String
     Description: "ARN of the MIE custom resource (WorkflowCustomResourceArn output of the main MIE CloudFormation stack)"
@@ -23,12 +23,12 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.7
+    Runtime: python3.8
     Handler: app.lambda_handler
     Timeout: 300
     MemorySize: 1024
     Layers:
-      - !Ref MediaInsightsEnginePython37Layer
+      - !Ref MediaInsightsEnginePython38Layer
     Environment:
       Variables:
         DATAPLANE_BUCKET: !Ref DataplaneBucket
