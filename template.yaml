@@ -206,6 +206,7 @@ Resources:
               - s3:*
             Resource: 
               - !Sub "arn:aws:s3:::${InputBucket}/*"
+              - !Sub "arn:aws:s3:::${InputBucket}"
             Principal: "*"
             Condition: 
               Bool: 
