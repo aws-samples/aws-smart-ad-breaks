@@ -5,9 +5,9 @@ AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
 Parameters:
-  MediaInsightsEnginePython38Layer:
+  MediaInsightsEnginePython39Layer:
     Type: String
-    Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython38Layer output of the main MIE CloudFormation stack)"
+    Description: "ARN of the MIE Lambda layer (MediaInsightsEnginePython39Layer output of the main MIE CloudFormation stack)"
   WorkflowCustomResourceArn:
     Type: String
     Description: "ARN of the MIE custom resource (WorkflowCustomResourceArn output of the main MIE CloudFormation stack)"
@@ -23,12 +23,12 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.8
+    Runtime: python3.9
     Handler: app.lambda_handler
     Timeout: 300
     MemorySize: 1024
     Layers:
-      - !Ref MediaInsightsEnginePython38Layer
+      - !Ref MediaInsightsEnginePython39Layer
     Environment:
       Variables:
         DATAPLANE_BUCKET: !Ref DataplaneBucket
@@ -423,7 +423,7 @@ Resources:
     Properties:
       ManagedPolicyArns: 
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
-        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+        - arn:aws:iam::aws:policy/AWSLambda_FullAccess
       Policies:
         - PolicyName: MediaTailorAccess
           PolicyDocument:
@@ -519,7 +519,7 @@ Resources:
     Properties:
       ManagedPolicyArns: 
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
-        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+        - arn:aws:iam::aws:policy/AWSLambda_FullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
       AssumeRolePolicyDocument:
         Version: 2012-10-17
