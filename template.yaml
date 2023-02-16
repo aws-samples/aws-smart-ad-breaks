@@ -4,6 +4,13 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
+Description: (uksb-1tsflhnas/v1/backend) This template deploys the aws-smart-ad-breaks
+
+Metadata:
+    ID: uksb-1tsflhnas
+    Version: 1
+    Stack: backend
+
 Parameters:
   MediaInsightsEnginePython39Layer:
     Type: String
