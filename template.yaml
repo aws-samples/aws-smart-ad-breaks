@@ -4,10 +4,10 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
-Description: (PACE000008/v1/backend) This template deploys the aws-smart-ad-breaks
+Description: (uksb-1tsflhn8p/v1/backend) This template deploys the aws-smart-ad-breaks
 
 Metadata:
-    ID: PACE000008
+    ID: uksb-1tsflhn8p
     Version: 1
     Stack: backend
 
